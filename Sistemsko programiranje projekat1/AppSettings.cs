@@ -12,7 +12,6 @@ namespace Sistemsko_programiranje_projekat1
     {
         public string apiKey { get; set; }
         public string port { get; set; }
-
         public int maxCacheSize { get; set; }
         public AppSettings(string port="8080")
         {

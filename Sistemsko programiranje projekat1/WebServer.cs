@@ -15,9 +15,7 @@ namespace Sistemsko_programiranje_projekat1
         public HttpListener listener;
         public Cache cache;
         public Europeana api;
-        public HashSet<string> queueEntries;
         public ConcurrentDictionary<string, SemaphoreSlim> queryE;
-        private readonly static object _lock = new object();
 
         public WebServer(AppSettings settings, string address)
         {
