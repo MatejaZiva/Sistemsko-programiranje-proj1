@@ -57,7 +57,6 @@ namespace Sistemsko_programiranje_projekat1
             if (context.Request.Url.ToString() == "http://localhost:8080/favicon.ico")
                 return;
 
-
             var keys = request.QueryString.AllKeys;
             string query = "?";
             foreach (var key in keys)
@@ -86,7 +85,7 @@ namespace Sistemsko_programiranje_projekat1
             //Posto nema u kes onda mora da vidi dal postoji semafor za njega
 
             SemaphoreSlim mainSem = queryE.GetOrAdd(query, (query) => new SemaphoreSlim(1));
-
+            int codeSend;
             mainSem.Wait();
             
             try
@@ -100,22 +99,33 @@ namespace Sistemsko_programiranje_projekat1
 
                     if (response.IsSuccessStatusCode == false)
                     {
-                        sendDataToClient("Failure", context, 500);
-                        throw new Eexceptions("The GET method has failed", 500);
+                        codeSend = 500;
+                        sendDataToClient("Failure", context, codeSend);
+                        throw new Eexceptions("The GET method has failed", codeSend);
                     }
 
                     jsonDataAsString = response.Content.ReadAsStringAsync().Result;
                     mapper = JsonSerializer.Deserialize<EuropeanaMapper>(jsonDataAsString);
-                    cache.addToCache(query, mapper);
+                    if(mapper.itemsCount == 0)
+                    {
+                        Logger.Log($"The query: {query} is not valid");
+                        codeSend = 404;
+                    }
+                    else
+                    {
+                        cache.addToCache(query, mapper);
+                        codeSend = 200;
+                    }
 
                 }
                 else
                 {
                     Logger.Log("The query was found in the cache");
+                    codeSend = 200;
                     mapper = cache.getDataFromCache(query);
                 }
                 mainSem.Release();
-                WebServer.sendDataToClient(JsonSerializer.Serialize<EuropeanaMapper>(mapper), context, 200);
+                WebServer.sendDataToClient(JsonSerializer.Serialize<EuropeanaMapper>(mapper), context, codeSend);
             }
 
             catch (Eexceptions e)
@@ -132,6 +142,10 @@ namespace Sistemsko_programiranje_projekat1
 
         public static void sendDataToClient(string dataToSend,HttpListenerContext context,int statusCode)
         {
+            if (statusCode == 404)
+            {
+                dataToSend = $"The query is not valid: {statusCode}";
+            }
             byte[] buffer = Encoding.UTF8.GetBytes(dataToSend);
             context.Response.ContentType = "text/html";
             context.Response.ContentLength64 = buffer.Length;
