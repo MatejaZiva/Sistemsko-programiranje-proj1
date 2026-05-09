@@ -49,15 +49,31 @@ namespace Sistemsko_programiranje_projekat1
 
         public void handleRequest(Object? obj)
         {
-            HttpListenerContext context = (HttpListenerContext)obj;
+            if (obj is not HttpListenerContext context)
+                return;
             HttpListenerRequest request = context.Request;
 
             //kada se napravi klijent sa browser-a request on zbog nekog razloga na pravi dva requesta
             //i taj drugi request je ovaj dole string pa da bez potrebe pravi greske samo ce ga hardkodujem
-            if (context.Request.Url.ToString() == "http://localhost:8080/favicon.ico")
+            if (context.Request.Url?.ToString() == "http://localhost:8080/favicon.ico")
                 return;
 
             var keys = request.QueryString.AllKeys;
+            if (keys.Length == 0 || string.IsNullOrWhiteSpace(request.QueryString["query"]))
+            {
+                string page = CreateHtmlResponse(
+                    "Europeana Search",
+                    "<p>Use the <strong>query</strong> parameter to search the Europeana API.</p>"
+                    + "<p>Example: <a href=\"?query=Lisa\">?query=Lisa</a></p>"
+                    + "<form method=\"get\">"
+                    + "<label>Search query: <input name=\"query\" value=\"\" /></label>"
+                    + "<button type=\"submit\">Search</button>"
+                    + "</form>"
+                );
+                sendDataToClient(page, context, 200);
+                return;
+            }
+
             string query = "?";
             foreach (var key in keys)
             {
@@ -70,7 +86,7 @@ namespace Sistemsko_programiranje_projekat1
             query += $"wskey={api.apiKey}";
 
             String jsonDataAsString = String.Empty;
-            EuropeanaMapper mapper = null;
+            EuropeanaMapper? mapper = null;
 
 
             //Odma proveri u kes da li postoji
@@ -106,7 +122,12 @@ namespace Sistemsko_programiranje_projekat1
 
                     jsonDataAsString = response.Content.ReadAsStringAsync().Result;
                     mapper = JsonSerializer.Deserialize<EuropeanaMapper>(jsonDataAsString);
-                    if(mapper.itemsCount == 0)
+                    if (mapper == null)
+                    {
+                        throw new InvalidOperationException("Failed to deserialize Europeana response.");
+                    }
+
+                    if (mapper.itemsCount == 0)
                     {
                         Logger.Log($"The query: {query} is not valid");
                         codeSend = 404;
@@ -124,10 +145,24 @@ namespace Sistemsko_programiranje_projekat1
                     codeSend = 200;
                     mapper = cache.getDataFromCache(query);
                 }
-                mainSem.Release();
-                WebServer.sendDataToClient(JsonSerializer.Serialize<EuropeanaMapper>(mapper), context, codeSend);
-            }
 
+                string responseHtml;
+                if (codeSend == 200)
+                {
+                    string prettyJson = JsonSerializer.Serialize(mapper, new JsonSerializerOptions { WriteIndented = true });
+                    responseHtml = RenderJsonPage(prettyJson);
+                }
+                else if (codeSend == 404)
+                {
+                    responseHtml = CreateHtmlResponse("No results found", $"<p>The query returned no results.</p><p><strong>{WebUtility.HtmlEncode(request.QueryString["query"])}</strong></p>");
+                }
+                else
+                {
+                    responseHtml = CreateHtmlResponse("Failure", "<p>Failure while fetching from Europeana.</p>");
+                }
+
+                WebServer.sendDataToClient(responseHtml, context, codeSend);
+            }
             catch (Eexceptions e)
             {
                 Logger.Log($"An error has occured: {e.Message} {e.errorCode}");
@@ -136,22 +171,50 @@ namespace Sistemsko_programiranje_projekat1
             {
                 Logger.Log("Something went really wrong: " + e.Message);
             }
+            finally
+            {
+                mainSem.Release();
+            }
 
         }
 
 
         public static void sendDataToClient(string dataToSend,HttpListenerContext context,int statusCode)
         {
-            if (statusCode == 404)
-            {
-                dataToSend = $"The query is not valid: {statusCode}";
-            }
             byte[] buffer = Encoding.UTF8.GetBytes(dataToSend);
             context.Response.ContentType = "text/html";
             context.Response.ContentLength64 = buffer.Length;
             context.Response.StatusCode = statusCode;
             context.Response.OutputStream.Write(buffer,0,buffer.Length);
             context.Response.Close();
+        }
+
+        private static string RenderJsonPage(string json)
+        {
+            string escaped = WebUtility.HtmlEncode(json);
+            return CreateHtmlResponse("Europeana result", $"<pre>{escaped}</pre>");
+        }
+
+        private static string CreateHtmlResponse(string title, string bodyHtml)
+        {
+            return "<!DOCTYPE html>\n"
+                + "<html lang=\"en\">\n"
+                + "<head>\n"
+                + "    <meta charset=\"utf-8\">\n"
+                + "    <title>" + WebUtility.HtmlEncode(title) + "</title>\n"
+                + "    <style>\n"
+                + "        body { font-family: Segoe UI, Arial, sans-serif; margin: 1rem; background: #f6f8fb; color: #1a1a1a; }\n"
+                + "        pre { background: #ffffff; border: 1px solid #d1d5db; padding: 1rem; overflow: auto; white-space: pre-wrap; word-wrap: break-word; }\n"
+                + "        a { color: #0366d6; text-decoration: none; }\n"
+                + "        a:hover { text-decoration: underline; }\n"
+                + "        button { margin-top: 0.5rem; padding: 0.5rem 1rem; }\n"
+                + "    </style>\n"
+                + "</head>\n"
+                + "<body>\n"
+                + "    <h1>" + WebUtility.HtmlEncode(title) + "</h1>\n"
+                + bodyHtml + "\n"
+                + "</body>\n"
+                + "</html>";
         }
     }
 }
