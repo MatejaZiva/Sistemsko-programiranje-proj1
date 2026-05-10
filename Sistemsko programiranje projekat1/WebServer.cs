@@ -94,7 +94,9 @@ namespace Sistemsko_programiranje_projekat1
             {
                 Logger.Log("The query was found in the cache");
                 mapper = cache.getDataFromCache(query);
-                WebServer.sendDataToClient(JsonSerializer.Serialize<EuropeanaMapper>(mapper), context, 200);
+                string prettyJson = JsonSerializer.Serialize(mapper, new JsonSerializerOptions { WriteIndented = true });
+                string responseHtml = RenderJsonPage(prettyJson);
+                WebServer.sendDataToClient(responseHtml, context, 200);
                 return;
             }
 
